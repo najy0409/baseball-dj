@@ -827,10 +827,10 @@ function pickFx(item){
   const s=c[Math.floor(Math.random()*c.length)];
   lastFx[item.key]=s; return s;
 }
-// 구단 아웃송: 「outsongs/<구단>.mp3」(유튜브 「KBO 팬들 댓글 난리난 아웃송 모음집」을 구단별로 자름)
+// 구단 아웃송: 「<구단>.mp3」(index.html 옆)(유튜브 「KBO 팬들 댓글 난리난 아웃송 모음집」을 구단별로 자름)
 // 아웃송은 수비 팀 응원이라, 공격 팀의 상대 팀이 구단 라인업이면 그 구단 아웃송. 아니면(청팀·백팀) 안타·아웃처럼 무작위
 const OUT_CLUBS=['kt','lg','samsung','ssg','kia','hanwha','doosan','nc','lotte','kiwoom'];
-const outUrl=k=>new URL('outsongs/'+k+'.mp3', location.href).href;
+const outUrl=k=>new URL(k+'.mp3', location.href).href;
 // 아래 효과음 줄 위 「아웃송」 칸: auto(수비 팀 구단) · random(무작위) · base(원래 아웃 소리) · 구단 고정
 let outMode='auto';
 try{ outMode=localStorage.getItem('outMode')||'auto'; }catch{}
