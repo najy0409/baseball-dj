@@ -811,12 +811,47 @@ function makePad(item,cls,isTeam){
     ripple(b,e);
     if(item.key==='homerun'){ const h=homerunSong(); playAudio(h.name,h.src,false,{padId:b.id}); return; }
     if(item.key==='out'){ const o=outSong(item); if(o){ playAudio(o.name,o.src,false,{padId:b.id}); return; } }
+    if(item.key==='hit'&&hitSongOk){ playAudio('안타 · KT 안타송',HIT_SONG,false,{padId:b.id}); return; }
     if(EXTRA_FX[item.key]){ const s=pickFx(item); playAudio(item.label,s,false,{padId:b.id}); return; }
     isTeam?playTeam(item.label,item.src):playNormal(item.label,item.src);
   });
   return b;
 }
 
+// 전체 음량 키우기: 원래 사이트(kimju1416.github.io)에서 불러오는 곡은 -14~-16 LUFS로 작아서
+// 웹 오디오로 약 +7.6dB 키우고 리미터로 찢어지지 않게 누른다. 내노래 파일(이미 -8 LUFS)은 그대로 튼다.
+const BOOST=2.4;
+let boostCtx=null, boostIn=null;
+function boostChain(){
+  if(boostCtx) return boostIn;
+  boostCtx=new (window.AudioContext||window.webkitAudioContext)();
+  const lim=boostCtx.createDynamicsCompressor();
+  lim.threshold.value=-3; lim.knee.value=0; lim.ratio.value=20; lim.attack.value=0.002; lim.release.value=0.15;
+  boostIn=boostCtx.createGain(); boostIn.gain.value=BOOST;
+  boostIn.connect(lim); lim.connect(boostCtx.destination);
+  return boostIn;
+}
+// 첫 터치 때 오디오 장치를 켠다(브라우저는 사용자가 누른 순간에만 소리 장치를 켜 준다)
+document.addEventListener('pointerdown',()=>{ try{ boostChain(); if(boostCtx.state!=='running') boostCtx.resume(); }catch{} },{capture:true});
+(function(){
+  const _Audio=window.Audio;
+  window.Audio=function(src){
+    const a=new _Audio();
+    if(src!==undefined){
+      let u=null; try{ u=new URL(src,document.baseURI); }catch{}
+      if(u&&u.hostname==='kimju1416.github.io'){
+        a.crossOrigin='anonymous';
+        a.addEventListener('play',()=>{ try{
+          if(!a._boost){ boostCtx||boostChain(); boostCtx.createMediaElementSource(a).connect(boostIn); a._boost=1; }
+          if(boostCtx.state!=='running') boostCtx.resume();
+        }catch{} });
+      }
+      a.src=src;
+    }
+    return a;
+  };
+  window.Audio.prototype=_Audio.prototype;
+})();
 // 안타·아웃 추가 효과음: 이 html 파일 옆 「내노래」 폴더의 안타1~20, 아웃1~20 (mp3·wav·m4a)
 // 누를 때마다 원래 소리 + 찾은 파일 중에서 무작위로 고른다(바로 전 소리는 빼고)
 const EXTRA_FX={hit:{name:'안타',pool:[]}, out:{name:'아웃',pool:[]}};
@@ -851,7 +886,13 @@ setTimeout(function renderOutSel(){   // clubShort가 아래에서 정의되므�
   if(!opts.some(o=>o[0]===outMode)) outMode='auto';
   sel.value=outMode;
 });
+// KT 안타송: 「hit_kt.mp3」(index.html 옆, 유튜브 「중독성 GOAT KT위즈 안타송」, 끝 무음 자름). 파일이 있으면 안타 버튼은 늘 이 곡
+const HIT_SONG=new URL('hit_kt.mp3', location.href).href;
+let hitSongOk=false;
 (function findExtraFx(){
+  { const a=new Audio(); a.preload='metadata'; a.onloadedmetadata=()=>{ hitSongOk=true; }; a.src=HIT_SONG; }
+  // 원래 안타·아웃 소리는 작아서(-16 LUFS) 크게 만든 「base_hit·base_out.mp3」가 있으면 그걸로 바꿔 튼다
+  EVENTS.filter(e=>e.key==='hit'||e.key==='out').forEach(e=>{ const u=new URL('base_'+e.key+'.mp3', location.href).href; const a=new Audio(); a.preload='metadata'; a.onloadedmetadata=()=>{ e.src=u; }; a.src=u; });
   OUT_CLUBS.forEach(k=>{ const a=new Audio(); a.preload='metadata'; a.onloadedmetadata=()=>EXTRA_FX.out.pool.push(outUrl(k)); a.src=outUrl(k); });
 })();
 function ripple(btn,e){
