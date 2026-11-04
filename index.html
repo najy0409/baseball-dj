@@ -670,6 +670,7 @@ body:not(.on-game) .out-pick { display: none; }
       <span class="vol-icon">🔊</span>
     </div>
     <div class="le-note" style="margin-top:6px">100%보다 더 올리면 볼륨 마스터처럼 더 커져요(최대 300%). 너무 올리면 소리가 뭉개질 수 있어요.</div>
+    <div class="le-note" id="boostStat" style="margin-top:4px;color:var(--yellow)"></div>
     <div class="sec-head"><span class="sec-label">라인업 편집</span><span class="sec-note" id="setTeamName" hidden></span></div>
     <div class="bat-tools"><span class="bt-k">팀</span><div class="seg" id="setSeg"><button onclick="setActiveTeam(0)"></button><button onclick="setActiveTeam(1)"></button></div></div>
     <div class="lineup-edit open" id="lineupEdit"></div>
@@ -950,7 +951,14 @@ function setMasterVol(v){
   if(masterGain) masterGain.gain.setTargetAtTime(Math.max(1,masterVol)/MAXV,boostCtx.currentTime,0.05);
   try{ localStorage.setItem('masterVol',String(masterVol)); }catch{}
 }
-// 지난번 전체 음량을 기억해 둔다(예전엔 열 때마다 100%)
+// 음량 막대 아래 상태 줄: 폰에서 새 버전인지, 증폭 장치가 켜졌는지, 지금 곡에 증폭이 걸렸는지 보여 준다
+const APP_VER='11-05 b';
+setInterval(()=>{
+  const el=document.getElementById('boostStat'); if(!el) return;
+  const on=boostCtx&&boostCtx.state==='running', playing=cur&&!cur.paused;
+  el.textContent=`버전 ${APP_VER} · 증폭 장치 ${on?'켜짐 ✓':'꺼짐 (아무 버튼이나 한 번 누르세요)'}`
+    +(playing?` · 지금 곡 ${cur._boost?'증폭 적용 ✓':'증폭 안 됨 ✗'}`:'')+` · 음량 ${Math.round(masterVol*100)}%`;
+},700);// 지난번 전체 음량을 기억해 둔다(예전엔 열 때마다 100%)
 setTimeout(()=>{ let v=1; try{ v=parseFloat(localStorage.getItem('masterVol')); }catch{} if(!(v>=0&&v<=3)) v=1; const s=document.querySelector('.vol-slider'); if(s) s.value=v; setMasterVol(v); });
 function applyVol(){
   if(!cur||!curSrc)return;
