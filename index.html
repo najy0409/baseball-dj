@@ -580,7 +580,14 @@ body:not(.on-game) .fx { display: none; }
 .content, .fx, .tabbar, .now-bar > * { max-width: 680px; margin-left: auto; margin-right: auto; width: 100%; }
 .hero-in { max-width: 680px; margin: 0 auto; }
 body:not(.on-game) { padding-bottom: calc(66px + var(--safe)); }
-/* 아웃 버튼에서 나올 아웃송 고르기 (효과음 줄 바로 위) */
+/* 라인업 다른 기기로 보내기 */
+.share-card { margin-top: 12px; padding: 12px; background: var(--surface); border: 1px solid var(--border2); border-radius: 12px; }
+.share-t { font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+.share-btns { display: flex; gap: 7px; margin-bottom: 6px; }
+.share-btns .tool-btn { flex: 1; }
+.qr-img { background: #fff; color: #111; border-radius: 10px; padding: 8px; margin: 6px auto 10px; max-width: 280px; font-size: 12px; text-align: center; }
+.qr-img svg { display: block; width: 100%; height: auto; }
+.qr-link { width: 100%; height: 34px; margin-bottom: 12px; padding: 0 8px; background: var(--bg); color: var(--muted); border: 1px solid var(--border2); border-radius: 8px; font-size: 11px; }/* 아웃 버튼에서 나올 아웃송 고르기 (효과음 줄 바로 위) */
 body { padding-bottom: calc(184px + var(--safe)); }
 .out-pick { display: flex; align-items: center; gap: 8px; padding: 8px 10px 0; max-width: 680px; margin: 0 auto; font-size: 12px; color: var(--muted); }
 body:not(.on-game) .out-pick { display: none; }
@@ -665,6 +672,11 @@ body:not(.on-game) .out-pick { display: none; }
     <div class="sec-head"><span class="sec-label">라인업 편집</span><span class="sec-note" id="setTeamName" hidden></span></div>
     <div class="bat-tools"><span class="bt-k">팀</span><div class="seg" id="setSeg"><button onclick="setActiveTeam(0)"></button><button onclick="setActiveTeam(1)"></button></div></div>
     <div class="lineup-edit open" id="lineupEdit"></div>
+    <div class="share-card">
+      <div class="share-t">📱 다른 기기로 라인업 보내기</div>
+      <div class="share-btns"><button class="tool-btn" onclick="shareLU()">QR로 보내기</button><button class="tool-btn" onclick="pasteLU()">링크로 받기</button></div>
+      <div class="le-note">QR을 폰 카메라로 찍으면 폰에 같은 라인업(이름·곡)이 들어가요. 크롬으로 열어 주세요.</div>
+    </div>
     <details>
       <summary>사용 방법</summary>
       <div class="hint-body">
@@ -707,7 +719,14 @@ body:not(.on-game) .out-pick { display: none; }
   </div>
 </div>
 
-<div class="cm-wrap ask-wrap" id="askModal" onclick="if(event.target===this)closeAsk(false)" role="alertdialog" aria-modal="true" aria-labelledby="askTitle">
+<div class="cm-wrap ask-wrap" id="qrModal" onclick="if(event.target===this)this.classList.remove('open')" role="dialog" aria-modal="true" aria-labelledby="qrTitle">
+  <div class="ask-box">
+    <div class="ask-title" id="qrTitle">폰 카메라로 QR을 찍으세요</div>
+    <div class="qr-img" id="qrBox"></div>
+    <input class="qr-link" id="qrLink" readonly aria-label="라인업 링크">
+    <div class="ask-btns"><button class="ask-no" id="qrCopy" onclick="copyLU()">링크 복사</button><button class="ask-no" onclick="document.getElementById('qrModal').classList.remove('open')">닫기</button></div>
+  </div>
+</div><div class="cm-wrap ask-wrap" id="askModal" onclick="if(event.target===this)closeAsk(false)" role="alertdialog" aria-modal="true" aria-labelledby="askTitle">
   <div class="ask-box">
     <div class="ask-title" id="askTitle"></div>
     <div class="ask-msg" id="askMsg"></div>
@@ -1504,6 +1523,66 @@ async function keepAwake(){
 }
 ['pointerdown','keydown'].forEach(ev=>document.addEventListener(ev,keepAwake,{passive:true}));
 document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') keepAwake(); });
+// ── 라인업 다른 기기로 보내기: 라인업을 압축해 주소(#lu=…)에 담아 QR·링크로 넘긴다. 받는 쪽은 열 때 물어보고 저장 ──
+// 목소리(voice)는 기기마다 달라서 빼고 보낸다. 주소는 늘 GitHub 판(바탕화면 판에서 보내도 폰은 GitHub 판으로 연다)
+const SHARE_BASE='https://najy0409.github.io/baseball-dj/';
+const b64u={
+  enc:b=>{ let s=''; b.forEach(c=>s+=String.fromCharCode(c)); return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); },
+  dec:s=>Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0))
+};
+async function luZip(data,unzip){
+  const cs=unzip?new DecompressionStream('deflate-raw'):new CompressionStream('deflate-raw');
+  return new Uint8Array(await new Response(new Blob([data]).stream().pipeThrough(cs)).arrayBuffer());
+}
+async function luLink(){
+  const d={m:LU.mode,c:LU.clip,k:LU.call,t:LU.teams.map(T=>[T.name,T.next||0,T.slots.map(s=>[s.name,s.song])])};
+  return SHARE_BASE+'#lu='+b64u.enc(await luZip(JSON.stringify(d)));
+}
+async function luFromLink(link){
+  const m=String(link).match(/#lu=([A-Za-z0-9_-]+)/); if(!m) return null;
+  const d=JSON.parse(new TextDecoder().decode(await luZip(b64u.dec(m[1]),true)));
+  return d&&Array.isArray(d.t)&&d.t.length===2?d:null;
+}
+function applyLU(d){
+  if(d.m) LU.mode=d.m;
+  if(typeof d.c==='number') LU.clip=d.c;
+  if(typeof d.k==='boolean') LU.call=d.k;
+  LU.teams=d.t.map(([name,next,slots])=>({name,next:next||0,cur:null,slots:slots.map(([n,s])=>({name:n,song:s}))}));
+  LU.active=0;
+  saveLU(); renderBatters(); renderMatchup(); renderEdit();
+  document.querySelectorAll('#modeSeg button').forEach(b=>b.classList.toggle('on',b.dataset.m===LU.mode));
+}
+function askLU(d){
+  const n=d.t.map(t=>`${t[0]}(${t[2].length}명)`).join(' · ');
+  askSheet('라인업 받기',`${n} 라인업으로 이 기기의 라인업을 바꿀까요? 지금 이 기기에 있는 라인업은 지워져요.`,'바꾸기',()=>{ applyLU(d); showTab('set'); });
+}
+function loadQR(){
+  return window.qrcode?Promise.resolve():new Promise((ok,no)=>{ const s=document.createElement('script'); s.src='https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js'; s.onload=ok; s.onerror=no; document.head.appendChild(s); });
+}
+async function shareLU(){
+  const box=document.getElementById('qrBox'), link=await luLink();
+  document.getElementById('qrLink').value=link; document.getElementById('qrCopy').textContent='링크 복사';
+  box.textContent='QR 만드는 중…'; document.getElementById('qrModal').classList.add('open');
+  try{ await loadQR(); const q=qrcode(0,'L'); q.addData(link); q.make(); box.innerHTML=q.createSvgTag({cellSize:4,margin:4,scalable:true}); }
+  catch{ box.textContent='QR을 못 만들었어요(인터넷 연결 확인). 아래 「링크 복사」로 보내 주세요.'; }
+}
+async function copyLU(){
+  const inp=document.getElementById('qrLink'), btn=document.getElementById('qrCopy');
+  try{ await navigator.clipboard.writeText(inp.value); }catch{ inp.select(); document.execCommand('copy'); }
+  btn.textContent='복사됨 ✓';
+}
+async function pasteLU(){
+  const t=prompt('다른 기기에서 복사한 라인업 링크를 붙여넣으세요'); if(!t) return;
+  let d=null; try{ d=await luFromLink(t); }catch{}
+  if(d) askLU(d); else alert('라인업 링크가 아니에요. 「링크 복사」로 받은 주소 전체를 붙여넣어 주세요.');
+}
+// 주소에 #lu=…가 붙어 열리면(QR로 연 경우) 물어보고 받는다. 주소의 #lu 부분은 바로 지운다
+(async()=>{
+  if(!location.hash.startsWith('#lu=')) return;
+  let d=null; try{ d=await luFromLink(location.hash); }catch{}
+  try{ history.replaceState(null,'',location.href.split('#')[0]); }catch{}
+  if(d) setTimeout(()=>askLU(d),300);
+})();
 renderPads(); renderBatters(); renderMatchup(); updateSub(); updateBadges(); refreshAppBtns();
 // isIOS(아래쪽 const) 뒤에서 — 앞에서 부르면 선언 전 접근으로 스크립트가 멈춘다
 if(inKakao){ document.getElementById('kakaoBar').hidden=false; if(isIOS) document.getElementById('kakaoBtn').textContent='사파리로 열기'; }
