@@ -666,9 +666,10 @@ body:not(.on-game) .out-pick { display: none; }
     <div class="sec-head"><span class="sec-label">전체 음량</span><span class="sec-note" id="masterPct">100%</span></div>
     <div class="vol-card">
       <span class="vol-icon">🔈</span>
-      <input class="vol-slider" type="range" min="0" max="1" step="0.01" value="1" oninput="setMasterVol(this.value)" aria-label="전체 음량">
+      <input class="vol-slider" type="range" min="0" max="3" step="0.05" value="1" oninput="setMasterVol(this.value)" aria-label="전체 음량">
       <span class="vol-icon">🔊</span>
     </div>
+    <div class="le-note" style="margin-top:6px">100%보다 더 올리면 볼륨 마스터처럼 더 커져요(최대 300%). 너무 올리면 소리가 뭉개질 수 있어요.</div>
     <div class="sec-head"><span class="sec-label">라인업 편집</span><span class="sec-note" id="setTeamName" hidden></span></div>
     <div class="bat-tools"><span class="bt-k">팀</span><div class="seg" id="setSeg"><button onclick="setActiveTeam(0)"></button><button onclick="setActiveTeam(1)"></button></div></div>
     <div class="lineup-edit open" id="lineupEdit"></div>
@@ -840,14 +841,16 @@ function makePad(item,cls,isTeam){
 // 전체 음량 키우기: 원래 사이트(kimju1416.github.io)에서 불러오는 곡은 -14~-16 LUFS로 작아서
 // 웹 오디오로 약 +7.6dB 키우고 리미터로 찢어지지 않게 누른다. 내노래 파일(이미 -8 LUFS)은 그대로 튼다.
 const BOOST=2.4;
-let boostCtx=null, boostIn=null;
+// 전체 음량이 100%를 넘으면(최대 300%) 모든 곡을 masterGain으로 더 키운다(볼륨 마스터처럼). 찢어짐은 리미터가 막는다
+let boostCtx=null, boostIn=null, masterGain=null;
 function boostChain(){
   if(boostCtx) return boostIn;
   boostCtx=new (window.AudioContext||window.webkitAudioContext)();
   const lim=boostCtx.createDynamicsCompressor();
   lim.threshold.value=-3; lim.knee.value=0; lim.ratio.value=20; lim.attack.value=0.002; lim.release.value=0.15;
+  masterGain=boostCtx.createGain(); masterGain.gain.value=Math.max(1,masterVol);
   boostIn=boostCtx.createGain(); boostIn.gain.value=BOOST;
-  boostIn.connect(lim); lim.connect(boostCtx.destination);
+  boostIn.connect(masterGain); masterGain.connect(lim); lim.connect(boostCtx.destination);
   return boostIn;
 }
 // 첫 터치 때 오디오 장치를 켠다(브라우저는 사용자가 누른 순간에만 소리 장치를 켜 준다)
@@ -858,10 +861,13 @@ document.addEventListener('pointerdown',()=>{ try{ boostChain(); if(boostCtx.sta
     const a=new _Audio();
     if(src!==undefined){
       let u=null; try{ u=new URL(src,document.baseURI); }catch{}
-      if(u&&u.hostname==='kimju1416.github.io'){
-        a.crossOrigin='anonymous';
+      // 원래 사이트 곡은 boostIn(2.4배)으로, 이 사이트에 올린 내 파일(이미 큼)은 masterGain으로 바로 보낸다.
+      // 바탕화면(file://)의 내 파일은 웹 오디오에 연결할 수 없어 그대로 튼다(100% 넘게는 안 커진다)
+      const remote=u&&u.hostname==='kimju1416.github.io', mine=u&&/^https?:$/.test(location.protocol)&&u.origin===location.origin;
+      if(remote||mine){
+        if(remote) a.crossOrigin='anonymous';
         a.addEventListener('play',()=>{ try{
-          if(!a._boost){ boostCtx||boostChain(); boostCtx.createMediaElementSource(a).connect(boostIn); a._boost=1; }
+          if(!a._boost){ boostCtx||boostChain(); boostCtx.createMediaElementSource(a).connect(remote?boostIn:masterGain); a._boost=1; }
           if(boostCtx.state!=='running') boostCtx.resume();
         }catch{} });
       }
@@ -935,7 +941,11 @@ function renderPads(){
 function setSoundVol(){} function resetSoundVols(){}
 function setMasterVol(v){
   masterVol=Number(v); document.getElementById('masterPct').textContent=Math.round(masterVol*100)+'%'; applyVol();
+  if(masterGain) masterGain.gain.setTargetAtTime(Math.max(1,masterVol),boostCtx.currentTime,0.05);
+  try{ localStorage.setItem('masterVol',String(masterVol)); }catch{}
 }
+// 지난번 전체 음량을 기억해 둔다(예전엔 열 때마다 100%)
+setTimeout(()=>{ let v=1; try{ v=parseFloat(localStorage.getItem('masterVol')); }catch{} if(!(v>=0&&v<=3)) v=1; const s=document.querySelector('.vol-slider'); if(s) s.value=v; setMasterVol(v); });
 function applyVol(){
   if(!cur||!curSrc)return;
   cur.volume=Math.min(1,masterVol);
