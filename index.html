@@ -841,16 +841,22 @@ function makePad(item,cls,isTeam){
 // 전체 음량 키우기: 원래 사이트(kimju1416.github.io)에서 불러오는 곡은 -14~-16 LUFS로 작아서
 // 웹 오디오로 약 +7.6dB 키우고 리미터로 찢어지지 않게 누른다. 내노래 파일(이미 -8 LUFS)은 그대로 튼다.
 const BOOST=2.4;
-// 전체 음량이 100%를 넘으면(최대 300%) 모든 곡을 masterGain으로 더 키운다(볼륨 마스터처럼). 찢어짐은 리미터가 막는다
+// 전체 음량이 100%를 넘으면(최대 300%) 볼륨 마스터처럼 더 키운다. 곡들이 이미 최대치(0dB) 가까이라 그냥 키우면
+// 리미터가 잘라 내 거의 안 커진다(300%에서 +1.6dB). 그래서 큰 소리만 부드럽게 눌러 붙이는 곡선(웨이브셰이퍼)으로
+// 평균 크기를 끌어올린다: 100%는 원래 그대로, 150% +2.8dB, 200% +4.5dB, 300% +6.3dB(리미터 뒤 실측)
+const MAXV=3;
 let boostCtx=null, boostIn=null, masterGain=null;
 function boostChain(){
   if(boostCtx) return boostIn;
   boostCtx=new (window.AudioContext||window.webkitAudioContext)();
+  const ws=boostCtx.createWaveShaper(), n=8192, c=new Float32Array(n), T=0.7;   // 입력을 1/3로 줄여 넣고 곡선에서 3배로 되돌린다
+  for(let i=0;i<n;i++){ const y=(i/(n-1)*2-1)*MAXV, ay=Math.abs(y); c[i]=Math.sign(y)*(ay<T?ay:T+(0.98-T)*Math.tanh((ay-T)/(0.98-T))); }
+  ws.curve=c; ws.oversample='4x';
   const lim=boostCtx.createDynamicsCompressor();
-  lim.threshold.value=-3; lim.knee.value=0; lim.ratio.value=20; lim.attack.value=0.002; lim.release.value=0.15;
-  masterGain=boostCtx.createGain(); masterGain.gain.value=Math.max(1,masterVol);
+  lim.threshold.value=-1; lim.knee.value=0; lim.ratio.value=20; lim.attack.value=0.001; lim.release.value=0.1;
+  masterGain=boostCtx.createGain(); masterGain.gain.value=Math.max(1,masterVol)/MAXV;
   boostIn=boostCtx.createGain(); boostIn.gain.value=BOOST;
-  boostIn.connect(masterGain); masterGain.connect(lim); lim.connect(boostCtx.destination);
+  boostIn.connect(masterGain); masterGain.connect(ws); ws.connect(lim); lim.connect(boostCtx.destination);
   return boostIn;
 }
 // 첫 터치 때 오디오 장치를 켠다(브라우저는 사용자가 누른 순간에만 소리 장치를 켜 준다)
@@ -941,7 +947,7 @@ function renderPads(){
 function setSoundVol(){} function resetSoundVols(){}
 function setMasterVol(v){
   masterVol=Number(v); document.getElementById('masterPct').textContent=Math.round(masterVol*100)+'%'; applyVol();
-  if(masterGain) masterGain.gain.setTargetAtTime(Math.max(1,masterVol),boostCtx.currentTime,0.05);
+  if(masterGain) masterGain.gain.setTargetAtTime(Math.max(1,masterVol)/MAXV,boostCtx.currentTime,0.05);
   try{ localStorage.setItem('masterVol',String(masterVol)); }catch{}
 }
 // 지난번 전체 음량을 기억해 둔다(예전엔 열 때마다 100%)
